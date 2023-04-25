@@ -1,21 +1,34 @@
 
 ASSUME CS:CODES,DS:DATAS,SS:STACK
 
+
 DATAS SEGMENT
-    inputReminder 		DB 'Please enter the formula:  $'
-    continueReminder 	DB 'Do you want to continue? (y/q) $' 
-    FLAG1 DW 0             ;判断数字是否输入完毕
-    SIGN DW 0              ;符号
-	FLAG2 DW 0             ;异常标志位
-    number				DW 20 DUP(0)    ;保存输入的数值
-    operator 			DB 'M'        	;保存的运算符
-						DB 10 DUP(0) 
-    ERROR DB 0AH,0DH,'YOUR INPUT IS WRONG!$' 
+
+	inputReminder		DB 'Please enter the formula:  $'
+	continueReminder	DB 'Do you want to continue? (y/q) $'
+	FLAG1 DW 0			;判断数字是否输入完毕
+	SIGN DW 0			;符号
+	errorFlag			DW 0			;异常标志位
+	number				DW 20 DUP(0)	;保存输入的数值
+	operator			DB 'M'			;保存的运算符
+						DB 10 DUP(0)
+	ERROR DB 0AH,0DH,'YOUR INPUT IS WRONG!$'
+
+	; 运算符优先级的表格
+	OPCODES		DB '=',0
+				DB ')',1
+				DB '+',2
+				DB '-',2
+				DB '*',3
+				DB '/',3
+				DB '(',4
+
 DATAS ENDS
 
-STACK  SEGMENT	STACK 		
-		DB	256 DUP(?)      			
-STACK  ENDS
+STACK SEGMENT STACK
+		DB	256 DUP(?)
+STACK ENDS
+
 
 ; 宏定义, 显示STR
 DISPLAY MACRO STR
@@ -24,17 +37,10 @@ DISPLAY MACRO STR
     INT 21H
 ENDM
 
-; 宏定义给运算符赋权值	
-CHOICE MACRO ASC,HAO,H 
-    CMP AL,ASC  
-    JNE OTH&HAO 
-    MOV CH,H 
-    JMP OTH7  
-ENDM
-		
-CODES SEGMENT   
 
-START: 
+CODES SEGMENT
+
+START:
 		MOV AX,DATAS  
 		MOV DS,AX  
 		MOV AX,STACK
@@ -47,17 +53,17 @@ START:
 		MOV CX,0  
 		MOV DX,0  
 		
-START1: 
+START1:
 		DISPLAY inputReminder	;显示输入提示
-	
-; 输入处理	
-INPUT:  
-		MOV AH,1  
-		INT 21H    
 		
-		; 若 AL = '=', 则跳转到L1
-		CMP AL,'='  
-		JE L1       
+; 输入处理
+INPUT:
+		MOV AH,1
+		INT 21H
+		
+		; 若 AL = '=', 则跳转到FLAG_CHECKINH
+		CMP AL,'='
+		JE FLAG_CHECKINH
 		
 		; 若 AL ∈ { '+', '-', '*', '/' }, 则跳转到L3
 		CMP AL,'+'
@@ -69,39 +75,40 @@ INPUT:
 		CMP AL,'/'
 		JE L3
 		
-		; 若 AL < '0' or AL > '9', 则跳转到ERR
-		CMP AL,'0'                
-		JB FUNCERR             
-		CMP AL,'9'               
-		JA  FUNCERR             
-	
+		; 若 AL < '0' or AL > '9', 则跳转到 INPUT_ERROR
+		CMP AL,'0'
+		JB INPUT_ERROR
+		CMP AL,'9'
+		JA INPUT_ERROR
+		
 		; 若 '0' <= AL <= '9', 则执行以下指令
 		; 进行数字预处理
 		; DS:[DI] = DS:[DI] * 10 + AX
-		INC WORD PTR FLAG1    	;将数字标志位加1
-		SUB AL,30H            	;将输入数字的ASCII码转16进制
-		MOV AH,0 				;将AH寄存器清零
-		XCHG AX,[DI]          	;交换AX和DS:[DI]
-		MUL BX                  ;用BX寄存器乘以AX寄存器的值, 并将结果保存在AX中
-		MOV BX,10  				;将BX寄存器设为10
-		XCHG AX,[DI]  			;再次将AX寄存器和DS:[DI]指向的内存单元进行交换
+		INC WORD PTR FLAG1		;将数字标志位加1
+		SUB AL,30H				;将输入数字的ASCII码转16进制
+		MOV AH,0				;将AH寄存器清零
+		XCHG AX,[DI]			;交换AX和DS:[DI]
+		MUL BX					;用BX寄存器乘以AX寄存器的值, 并将结果保存在AX中
+		MOV BX,10				;将BX寄存器设为10
+		XCHG AX,[DI]			;再次将AX寄存器和DS:[DI]指向的内存单元进行交换
 		ADD [DI],AX				;将AX寄存器的值加到DS:[DI]指向的内存单元中
-		JMP INPUT           	;数字预处理结束，跳转到INPUT
+		JMP INPUT				;数字预处理结束，跳转到INPUT
 		
-FUNCERR: 	
-		MOV WORD PTR FLAG2,1
-		jmp short L1
-	
-;判断配对标志位	
-L1: 	
-		CMP WORD PTR FLAG2,1
+; 输入错误处理
+INPUT_ERROR:
+		MOV WORD PTR errorFlag,1
+		JMP SHORT FLAG_CHECKINH
+		
+; 判断配对标志位
+FLAG_CHECKINH:
+		CMP WORD PTR errorFlag,1
 		JE DISERR
-		CMP WORD PTR SIGN,0  
-		JE L2  
-		JMP BC  
-	
-;符号响应操作
-L2:	
+		CMP WORD PTR SIGN,0
+		JE L2
+		JMP BC
+		
+; 符号响应操作
+L2:
 		cmp al,'q'
 		je L3
 		cmp al,'y'
@@ -110,60 +117,49 @@ L2:
 		je L3
 		cmp al,'q'
 		je L3
-		cmp al,'+'
-		je L3
-		cmp al,'-'
-		je L3
-		cmp al,'*'
-		je L3
-		cmp al,'/'
-		je L3
 		cmp al,'='
 		je L3
 		
-DISERR:	
-		call Crlf
-		DISPLAY ERROR        ;非法表达式处理
-		call Crlf
-		mov ax,4c00h
-		int 21h
-	
-L3:		
-		CMP WORD PTR FLAG1,0  ;判断数值指针是否已经下移一位
-		JE L4 
-		ADD DI,2  
-		MOV WORD PTR FLAG1,0  ;将数字标志位复0
-	
-L4:	CALL ADVANCE          ;设定优先级
-		CMP CH,5              
-		JNE L5                
-		INC WORD PTR SIGN  
-	
-L5: 
-		CMP CH,1              
-		JNE AGAIN  
-		DEC WORD PTR SIGN  
-	
-	
-     
-AGAIN: 
-		CMP BYTE PTR[SI],'M'  ;判断运算符存储区是否为空      
+DISERR:
+		CALL CRLF
+		DISPLAY ERROR			;非法表达式处理
+		CALL CRLF
+		MOV AX,4C00H
+		INT 21H
+		
+L3:
+		CMP WORD PTR FLAG1,0	;判断数值指针是否已经下移一位
+		JE L4
+		ADD DI,2
+		MOV WORD PTR FLAG1,0	;将数字标志位复0
+		
+L4:
+		CALL ADVANCE			;设定优先级
+		CMP CH,5
+		JNE L5
+		INC WORD PTR SIGN
+		
+L5:
+		CMP CH,1
+		JNE AGAIN
+		DEC WORD PTR SIGN
+		
+AGAIN:
+		CMP BYTE PTR[SI],'M'	;判断运算符存储区是否为空      
 		JE SAVE
-		CMP CH,[SI]           ;[SI]的内容为前一个符号或其权值
-		JA SAVE  
-		CMP BYTE PTR[SI],'('     
+		CMP CH,[SI]				;[SI]的内容为前一个符号或其权值
+		JA SAVE
+		CMP BYTE PTR[SI],'('
 		JNE L6
 		DEC SI
 		JMP INPUT
-
-
-	
-L6: 
-		DEC SI  
-		MOV CL,[SI]  
-		CALL MATCH            ;判断是什么运算符并进行相应的计算
-		JMP AGAIN  
-	
+		
+L6:
+		DEC SI
+		MOV CL,[SI]
+		CALL MATCH				;判断是什么运算符并进行相应的计算
+		JMP AGAIN
+		
 x:	jmp near ptr OUTPUT
 y:	jmp near ptr INPUT    
 SAVE: 
@@ -236,17 +232,21 @@ MATCH_END:
 		RET
 MATCH ENDP
 
-ADVANCE PROC
-CHOICE 28H,1,5   
-OTH1:CHOICE 29H,2,1 
-OTH2:CHOICE 2AH,3,4  ;*
-OTH3:CHOICE 2FH,4,4  ;/
-OTH4:CHOICE 2BH,5,3  ;+
-OTH5:CHOICE 2DH,6,3  ;-
-OTH6:CHOICE 3DH,7,0  ;=
-OTH7:RET
-ADVANCE ENDP
 
+ADVANCE PROC
+	MOV BX,OFFSET OPCODES
+	MOV CX,6			;循环次数为表格中的元素个数
+LOOP_ADVANCE:
+	CMP AL,[BX]			;比较当前输入字符和表格中的字符
+	JE END_ADVANCE		;如果匹配，则跳转到 END_ADVANCE 处
+	ADD BX,2			;每个表格项占两个字节，移动到下一个
+	LOOP LOOP_ADVANCE	;循环比较
+	MOV CH,-1			;没有匹配的情况下，将 CH 设为 -1
+	RET
+END_ADVANCE:
+	MOV CH,[BX+1]		;匹配到时，将对应的操作码放入 CH 中
+	RET
+ADVANCE ENDP
 
 
 ;输出运算结果
