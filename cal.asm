@@ -6,7 +6,7 @@ DATAS SEGMENT
 
 	inputReminder		DB 'Please enter the formula:  $'
 	continueReminder	DB 'Do you want to continue? (y/q) $'
-	FLAG1 DW 0			;判断数字是否输入完毕
+	numberFinishedFlag	DW 0			;判断数字是否输入完毕
 	SIGN DW 0			;符号
 	errorFlag			DW 0			;异常标志位
 	number				DW 20 DUP(0)	;保存输入的数值
@@ -25,14 +25,15 @@ DATAS SEGMENT
 
 DATAS ENDS
 
+
 STACK SEGMENT STACK
 		DB	256 DUP(?)
 STACK ENDS
 
 
-; 宏定义, 显示STR
-DISPLAY MACRO STR
-    LEA DX,STR
+; 宏定义, 显示字符串string
+DISPLAY MACRO string
+    LEA DX,string
     MOV AH,9
     INT 21H
 ENDM
@@ -41,198 +42,212 @@ ENDM
 CODES SEGMENT
 
 START:
-		MOV AX,DATAS  
-		MOV DS,AX  
+		MOV AX,DATAS
+		MOV DS,AX
 		MOV AX,STACK
-		MOV SS,AX 
-		LEA DI,number  
-		LEA SI,operator  
-		
-		MOV AX,0   
+		MOV SS,AX
+		LEA DI,number
+		LEA SI,operator
+
+		MOV AX,0
 		MOV BX,0
-		MOV CX,0  
-		MOV DX,0  
-		
+		MOV CX,0
+		MOV DX,0
+
 START1:
 		DISPLAY inputReminder	;显示输入提示
-		
+
 ; 输入处理
 INPUT:
 		MOV AH,1
 		INT 21H
-		
+
 		; 若 AL = '=', 则跳转到FLAG_CHECKINH
 		CMP AL,'='
 		JE FLAG_CHECKINH
-		
-		; 若 AL ∈ { '+', '-', '*', '/' }, 则跳转到L3
+
+		; 若 AL ∈ { '+', '-', '*', '/' }, 则跳转到NUMBER_PROCESSING
 		CMP AL,'+'
-		JE L3
+		JE NUMBER_PROCESSING
 		CMP AL,'-'
-		JE L3
+		JE NUMBER_PROCESSING
 		CMP AL,'*'
-		JE L3
+		JE NUMBER_PROCESSING
 		CMP AL,'/'
-		JE L3
-		
+		JE NUMBER_PROCESSING
+
 		; 若 AL < '0' or AL > '9', 则跳转到 INPUT_ERROR
 		CMP AL,'0'
 		JB INPUT_ERROR
 		CMP AL,'9'
 		JA INPUT_ERROR
-		
+
 		; 若 '0' <= AL <= '9', 则执行以下指令
 		; 进行数字预处理
 		; DS:[DI] = DS:[DI] * 10 + AX
-		INC WORD PTR FLAG1		;将数字标志位加1
-		SUB AL,30H				;将输入数字的ASCII码转16进制
-		MOV AH,0				;将AH寄存器清零
-		XCHG AX,[DI]			;交换AX和DS:[DI]
-		MUL BX					;用BX寄存器乘以AX寄存器的值, 并将结果保存在AX中
-		MOV BX,10				;将BX寄存器设为10
-		XCHG AX,[DI]			;再次将AX寄存器和DS:[DI]指向的内存单元进行交换
-		ADD [DI],AX				;将AX寄存器的值加到DS:[DI]指向的内存单元中
-		JMP INPUT				;数字预处理结束，跳转到INPUT
-		
+		INC WORD PTR numberFinishedFlag		;将数字标志位加1
+		SUB AL,30H		;将输入数字的ASCII码转16进制
+		MOV AH,0		;将AH寄存器清零
+		XCHG AX,[DI]	;交换AX和DS:[DI]
+		MUL BX			;用BX寄存器乘以AX寄存器的值, 并将结果保存在AX中
+		MOV BX,10		;将BX寄存器设为10
+		XCHG AX,[DI]	;再次将AX寄存器和DS:[DI]指向的内存单元进行交换
+		ADD [DI],AX		;将AX寄存器的值加到DS:[DI]指向的内存单元中
+		JMP INPUT		;数字预处理结束，跳转到INPUT
+
 ; 输入错误处理
 INPUT_ERROR:
 		MOV WORD PTR errorFlag,1
 		JMP SHORT FLAG_CHECKINH
-		
+
 ; 判断配对标志位
 FLAG_CHECKINH:
 		CMP WORD PTR errorFlag,1
-		JE DISERR
+		JE ERROR_DISPLAY
 		CMP WORD PTR SIGN,0
 		JE L2
 		JMP BC
-		
+
 ; 符号响应操作
 L2:
 		cmp al,'q'
-		je L3
+		je NUMBER_PROCESSING
 		cmp al,'y'
-		je L3
+		je NUMBER_PROCESSING
 		cmp al,'Q'
-		je L3
+		je NUMBER_PROCESSING
 		cmp al,'q'
-		je L3
+		je NUMBER_PROCESSING
 		cmp al,'='
-		je L3
-		
-DISERR:
+		je NUMBER_PROCESSING
+
+ERROR_DISPLAY:
 		CALL CRLF
 		DISPLAY ERROR			;非法表达式处理
 		CALL CRLF
 		MOV AX,4C00H
 		INT 21H
-		
-L3:
-		CMP WORD PTR FLAG1,0	;判断数值指针是否已经下移一位
-		JE L4
+
+NUMBER_PROCESSING:
+		CMP WORD PTR numberFinishedFlag,0	;判断数值指针是否已经下移一位
+		JE OPERATOR_PROCESSING
 		ADD DI,2
-		MOV WORD PTR FLAG1,0	;将数字标志位复0
-		
-L4:
+		MOV WORD PTR numberFinishedFlag,0	;将数字标志位复0
+
+OPERATOR_PROCESSING:
 		CALL ADVANCE			;设定优先级
-		CMP CH,5
+		CMP CH,4
 		JNE L5
 		INC WORD PTR SIGN
-		
+
 L5:
 		CMP CH,1
 		JNE AGAIN
 		DEC WORD PTR SIGN
-		
+
 AGAIN:
-		CMP BYTE PTR[SI],'M'	;判断运算符存储区是否为空      
+		CMP BYTE PTR[SI],'M'	;判断运算符存储区是否为空
 		JE SAVE
-		CMP CH,[SI]				;[SI]的内容为前一个符号或其权值
+		CMP CH,[SI]				;[SI]的内容为前一个符号的优先级
 		JA SAVE
 		CMP BYTE PTR[SI],'('
 		JNE L6
 		DEC SI
 		JMP INPUT
-		
+
 L6:
 		DEC SI
 		MOV CL,[SI]
-		CALL MATCH				;判断是什么运算符并进行相应的计算
+		CALL MATCH		;判断是什么运算符并进行相应的计算
 		JMP AGAIN
-		
-x:	jmp near ptr OUTPUT
-y:	jmp near ptr INPUT    
-SAVE: 
-		CMP CH,0              ;判断是否是等号
-		JE x   
-		CMP CH,1  
-		JE y             
-		INC SI  
-		MOV [SI],AL           ;保存符号
-		INC SI  
-		CMP CH,5              ;判断是否是左括号
-		JNE GO_ON  
-		MOV CH,2              ;改变(的权值	
-	
-GO_ON: 
-		MOV [SI],CH           ;紧跟着保存符号的权值
-		JMP INPUT
-      
-BC: 	LEA DX,ERROR 
-		MOV AH,9  
-		INT 21H  
-		JMP OUTPUT_END  
 
-;子程序，进行相应的运算
-MATCH PROC NEAR          
-		PUSH AX  
-		XOR AX,AX
-		XOR BX,BX
-		CMP CL,2AH            ;乘法运算
-		JNE MATCH_1
+x:	jmp near ptr OUTPUT
+y:	jmp near ptr INPUT
+SAVE:
+		CMP CH,0		;判断是否是等号
+		JE x
+		CMP CH,1		;判断是否是右括号
+		JE y
+		INC SI
+		MOV [SI],AL		;保存符号
+		INC SI
+		CMP CH,4		;判断是否是左括号
+		JNE GO_ON
+		MOV CH,2		;改变(的权值
+
+GO_ON: 
+		MOV [SI],CH		;紧跟着保存符号的权值
+		JMP INPUT
+
+BC: 	LEA DX,ERROR
+		MOV AH,9
+		INT 21H
+		JMP OUTPUT_END
+
+
+; 宏定义, 抽取四个运算前部的共同代码
+BEFORE_CALC MACRO
 		SUB DI,2
 		XCHG BX,[DI]
 		SUB DI,2
 		XCHG AX,[DI]
-		IMUL BX
+ENDM
+
+; 宏定义, 抽取四个运算后部的共同代码
+AFTER_CALC MACRO
 		MOV [DI],AX
 		ADD DI,2
+ENDM
+
+; 子程序, 进行相应的运算
+MATCH PROC NEAR
+		PUSH AX 		;将AX的值压入堆栈 (保护AX寄存器的值
+		XOR AX,AX
+		XOR BX,BX		;将AX和BX寄存器的值清零
+
+		; 乘法运算
+		CMP CL,'*'
+		JNE MATCH_DIVISION
+		BEFORE_CALC
+		IMUL BX
+		AFTER_CALC
 		JMP MATCH_END
-MATCH_1:	
-		CMP CL,2FH          ;除法运算
-		JNE MATCH_2
-		SUB DI,2
-		XCHG BX,[DI]
-		SUB DI,2  
-		XCHG AX,[DI]
+
+; 除法运算
+MATCH_DIVISION:
+		CMP CL,'/'
+		JNE MATCH_ADDITION
+		BEFORE_CALC
 		CWD
 		IDIV BX
-		MOV [DI],AX
-		ADD DI,2
+		AFTER_CALC
 		JMP MATCH_END
-MATCH_2:
-		CMP CL,2BH          ;加法运算
-		JNE MATCH_3
-		SUB DI,2
-		XCHG BX,[DI]
-		SUB DI,2
-		ADD [DI],BX
-		ADD DI,2
+
+; 加法运算
+MATCH_ADDITION:
+		CMP CL,'+'
+		JNE MATCH_SUBTRACTION
+		BEFORE_CALC
+		ADD AX,BX
+		AFTER_CALC
 		JMP MATCH_END
-MATCH_3:
-		CMP CL,2DH          ;减法运算
+
+; 减法运算
+MATCH_SUBTRACTION:
+		CMP CL,'-'
 		JNE MATCH_END
-		SUB DI,2
-		XCHG BX,[DI]
-		SUB DI,2
-		SUB [DI],BX  
-		ADD DI,2
+		BEFORE_CALC
+		SUB AX,BX
+		AFTER_CALC
+
 MATCH_END:
-		POP AX 
+		POP AX
 		RET
+
 MATCH ENDP
 
 
+; 子程序, 进行运算符优先级赋值
 ADVANCE PROC
 	MOV BX,OFFSET OPCODES
 	MOV CX,6			;循环次数为表格中的元素个数
