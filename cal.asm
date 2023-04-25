@@ -1,30 +1,30 @@
 
-ASSUME CS:CODES,DS:DATAS,ss:stack
+ASSUME CS:CODES,DS:DATAS,SS:STACK
 
 DATAS SEGMENT
-    STRIN DB 'Please enter the formula:  $'
-    MESG DB 'Do you want to continue? (y/q) $' 
+    inputReminder 		DB 'Please enter the formula:  $'
+    continueReminder 	DB 'Do you want to continue? (y/q) $' 
     FLAG1 DW 0             ;判断数字是否输入完毕
     SIGN DW 0              ;符号
 	FLAG2 DW 0             ;异常标志位
-    NUMBER DW 20 DUP(0)    ;保存输入的数值
-    Operator DB 'M'        ;保存的运算符
-             DB 10 DUP(0) 
+    number				DW 20 DUP(0)    ;保存输入的数值
+    operator 			DB 'M'        	;保存的运算符
+						DB 10 DUP(0) 
     ERROR DB 0AH,0DH,'YOUR INPUT IS WRONG!$' 
 DATAS ENDS
 
-stack  segment	stack 		
-		db	256 dup(?)      			
-stack  ends
+STACK  SEGMENT	STACK 		
+		DB	256 DUP(?)      			
+STACK  ENDS
 
-;宏定义，显示STR
-DISP MACRO STR
+; 宏定义, 显示STR
+DISPLAY MACRO STR
     LEA DX,STR
     MOV AH,9
     INT 21H
 ENDM
 
-;宏定义给运算符赋权值	
+; 宏定义给运算符赋权值	
 CHOICE MACRO ASC,HAO,H 
     CMP AL,ASC  
     JNE OTH&HAO 
@@ -39,8 +39,8 @@ START:
 		MOV DS,AX  
 		MOV AX,STACK
 		MOV SS,AX 
-		LEA DI,NUMBER  
-		LEA SI,Operator  
+		LEA DI,number  
+		LEA SI,operator  
 		
 		MOV AX,0   
 		MOV BX,0
@@ -48,39 +48,53 @@ START:
 		MOV DX,0  
 		
 START1: 
-		DISP STRIN    ;显示STR1
+		DISPLAY inputReminder	;显示输入提示
 	
-;输入处理	
+; 输入处理	
 INPUT:  
 		MOV AH,1  
-		INT 21H        
-		CMP AL,'='  
-		JE L1                     ; AL = '=',则跳转到L1
-		CMP AL,2AH                
-		JB FUNCERR                     ; AL < '*',则跳转到ERR
-		CMP AL,39H               
-		JA  FUNCERR                   ; AL > '9',则跳转到ERR
-		CMP AL,2FH                
-		JBE L2                   ; '*' <= AL <= '/', 则跳L2
-	
-	
-		                       ;'0' <= AL <= '9', 则执行以下指令，进行数字预处理
-		INC WORD PTR FLAG1    ;将数字标志位加1
-		SUB AL,30H            ;将ASCII码转16进制
-		MOV AH,0 
-		XCHG AX,[DI]          ;交换 AX 和 DS:[DI]
-    
-		MUL BX  
-		MOV BX,10  
-		XCHG AX,[DI]  
-		ADD [DI],AX  
-		JMP INPUT           ;数字预处理结束，跳转到INPUT
+		INT 21H    
 		
-FUNCERR: 	MOV WORD PTR FLAG2,1
-		jmp short INPUT
+		; 若 AL = '=', 则跳转到L1
+		CMP AL,'='  
+		JE L1       
+		
+		; 若 AL ∈ { '+', '-', '*', '/' }, 则跳转到L3
+		CMP AL,'+'
+		JE L3
+		CMP AL,'-'
+		JE L3
+		CMP AL,'*'
+		JE L3
+		CMP AL,'/'
+		JE L3
+		
+		; 若 AL < '0' or AL > '9', 则跳转到ERR
+		CMP AL,'0'                
+		JB FUNCERR             
+		CMP AL,'9'               
+		JA  FUNCERR             
+	
+		; 若 '0' <= AL <= '9', 则执行以下指令
+		; 进行数字预处理
+		; DS:[DI] = DS:[DI] * 10 + AX
+		INC WORD PTR FLAG1    	;将数字标志位加1
+		SUB AL,30H            	;将输入数字的ASCII码转16进制
+		MOV AH,0 				;将AH寄存器清零
+		XCHG AX,[DI]          	;交换AX和DS:[DI]
+		MUL BX                  ;用BX寄存器乘以AX寄存器的值, 并将结果保存在AX中
+		MOV BX,10  				;将BX寄存器设为10
+		XCHG AX,[DI]  			;再次将AX寄存器和DS:[DI]指向的内存单元进行交换
+		ADD [DI],AX				;将AX寄存器的值加到DS:[DI]指向的内存单元中
+		JMP INPUT           	;数字预处理结束，跳转到INPUT
+		
+FUNCERR: 	
+		MOV WORD PTR FLAG2,1
+		jmp short L1
 	
 ;判断配对标志位	
-L1: 	CMP WORD PTR FLAG2,1
+L1: 	
+		CMP WORD PTR FLAG2,1
 		JE DISERR
 		CMP WORD PTR SIGN,0  
 		JE L2  
@@ -106,13 +120,16 @@ L2:
 		je L3
 		cmp al,'='
 		je L3
-DISERR:	call Crlf
-		DISP ERROR        ;非法表达式处理
+		
+DISERR:	
+		call Crlf
+		DISPLAY ERROR        ;非法表达式处理
 		call Crlf
 		mov ax,4c00h
 		int 21h
 	
-L3:		CMP WORD PTR FLAG1,0  ;判断数值指针是否已经下移一位
+L3:		
+		CMP WORD PTR FLAG1,0  ;判断数值指针是否已经下移一位
 		JE L4 
 		ADD DI,2  
 		MOV WORD PTR FLAG1,0  ;将数字标志位复0
@@ -268,7 +285,7 @@ OUTPUT_4: 	MOV AX,BX
 		LOOP OUTPUT_2
     
 		CALL Crlf              
-		DISP MESG
+		DISPLAY continueReminder
 		MOV AH,1
 		INT 21H
 		CMP AL,'q'
@@ -277,8 +294,8 @@ OUTPUT_4: 	MOV AX,BX
 		JE OUTPUT_END
 		MOV WORD PTR[DI+2],0  
 		CALL Crlf
-		LEA DI,NUMBER  
-		LEA SI,Operator
+		LEA DI,number  
+		LEA SI,operator
 		JMP START1
 OUTPUT_END: 
 		call Crlf
